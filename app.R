@@ -1,3 +1,19 @@
+# There are in total three pages in this app
+#in the "summary"page, you can find summary data 
+#of parks within the selected area (a slider input)
+
+#in the "Plot" page, you can find a scatter plot 
+#of all parks within the selected area and 
+#you can select y-axis and x-axis to be plotted, 
+#you can find another 2 plots below the scatterplot, 
+#these 2 plots are based on the division name you have selected.
+
+#in the "Table" page, you can find a data table based on 
+#the division name you have selected and the number of entries is based on 
+#the number of samples you have inputted.
+#You can always get a new set of samples by clikcing on the "get new samples"button.
+
+
 library(shiny)
 library(shinydashboard)
 library(reshape2)
@@ -7,8 +23,9 @@ library(shinythemes)
 library(DT)
 library(ggplot2)
 
+
 #load csv data
-park <- read.csv("C:/Users/user/Desktop/MINI 1/R-shiny/project1/draft1/park.csv")
+park <- read.csv("park.csv")
 
 #avoid plotly issues
 pdf(NULL)
@@ -25,12 +42,14 @@ sidebar<-dashboardSidebar(
     menuItem("Table",icon=icon("table"),tabName = "table",badgeLabel = "new",badgeColor="red"),
     
     #inputs
+    #select a range of area, only parks within this area will be summarized and scatterplotted
     sliderInput(inputId="area_select",
                 label="Select area within:",
                 min=min(park$Shape__Area,na.rm=T),
                 max=max(park$Shape__Area,na.rm=T),
                 value=c(min(park$Shape__Area,na.rm=T),max(park$Shape__Area,na.rm=T)),
     ),
+    #select y-axis and x-axis of the scatterplot
     selectInput(inputId="y",
                 label="Y-aixs of scatterplot",
                 choices=c("Acreage"="acreage",
@@ -46,19 +65,20 @@ sidebar<-dashboardSidebar(
                           "Shape area"="Shape__Area",
                           "Shape length"="Shape__Length"),
                 selected="Shape__Length"),
-
+   #select the column to be colored by
     selectInput(inputId="z",
                 label="color by",
                 choices=c("Type"="type_",
                           "Sector"="sector",
                           "Divname"="divname"),
                 selected="sector"),
+   
     numericInput(inputId="size",
                  label="point size in scatterplot",
                  value=1.5,min=1,max=3,step=0.1),
-  
+  #ask user to give a title to scatterplot
     textInput(inputId="plot_title",label="Plot title of scatterplot",placeholder="Enter text to be used as plot title"),
-    
+    #select the division for boxplot and barplot
       selectInput(inputId="selected_division",
                 label="select divname for chart and table",
                 choices=sort(unique(park$divname)),
@@ -109,9 +129,10 @@ body<-dashboardBody(tabItems(
     
     #data table page
     tabItem("table",
+            #show user how many seconds have been spent on this page
             textOutput(outputId="time_elapse"),
             fluidPage(
-                box(title="stats of sampled parks in selected divname",
+                box(title="key information of sampled parks in selected divname",
                     DT::dataTableOutput("table"),width=12)
             ))
 )
@@ -123,19 +144,20 @@ ui<-dashboardPage(header,sidebar,body,skin="red")
 
 #define server function
 server<-function(input,output,session){
+  #data subset to plot barplot and boxplot,and for table output
     park_subset<-reactive({
-        # req(input$selected_division)
+         req(input$selected_division)
         filter(park,divname %in% input$selected_division)
     })
 
-    #sample data for table output
+    #update sample size for table output for different sessions
     observe({
     updateNumericInput(session,
                        inputId="n_samp",
                        value=min(15,nrow(park_subset())),
                        max=nrow(park_subset()))
     })
-    #get new samples when user hit the button
+    #get new samples when user hits the button
     park_subset_sample<-eventReactive(
         eventExpr=input$get_new_sample,
         valueExpr={
@@ -145,7 +167,7 @@ server<-function(input,output,session){
     )
     
     
-    #a subset of parks in selected shape area
+    #a subset of parks in selected shape area, dataset for scatterplot
     park_within<-reactive({
        filter(park,Shape__Area>=input$area_select[1]&Shape__Area<=input$area_select[2]) 
     })
@@ -200,7 +222,7 @@ server<-function(input,output,session){
     diff <- reactive({ round(difftime(now(), beg(), units = "secs")) })
     output$time_elapse <- renderText({   
       paste("You have been viewing this table for", diff(), "seconds.") })
-    # #create data table
+    #create data table
     output$table<-DT::renderDataTable( 
      DT::datatable(data=park_subset_sample()[,c(2,6,8,11,19)], 
                    
