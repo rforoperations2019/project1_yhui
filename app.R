@@ -1,267 +1,210 @@
-# There are in total three pages in this app
-#in the "summary"page, you can find summary data 
-#of parks within the selected area (a slider input)
-
-#in the "Plot" page, you can find a scatter plot 
-#of all parks within the selected area and 
-#you can select y-axis and x-axis to be plotted, 
-#you can find another 2 plots below the scatterplot, 
-#these 2 plots are based on the division name you have selected.
-
-#in the "Table" page, you can find a data table based on 
-#the division name you have selected and the number of entries is based on 
-#the number of samples you have inputted.
-#You can always get a new set of samples by clikcing on the "get new samples"button.
+#
+# This is a Shiny web application. You can run the application by clicking
 
 
-library(shiny)
+library(plotly)
+library(rgdal) 
 library(shinydashboard)
 library(reshape2)
-library(dplyr)
-library(plotly)
 library(shinythemes)
 library(DT)
 library(ggplot2)
+library(tools)
+library(stringr)
+library(shiny)
+library(leaflet)
+library(dplyr)
+library(leaflet.extras)
 
-
-#load csv data
-park <- read.csv("park.csv")
-
-#avoid plotly issues
+library(jsonlite)
 pdf(NULL)
 
+#import data
+#earthquake<-read.csv("earthquakes.csv")
+us <- readOGR("https://eric.clst.org/assets/wiki/uploads/Stuff/gz_2010_us_500_11_20m.json")
+earthquake <- read.csv("C:/Users/user/Desktop/MINI 1/R-shiny/project2/work_on_this/earthquakes.csv")
+#define depth level as a categorical variable based on depth
+earthquake$depth_level<-"Medium"
+earthquake$depth_level[earthquake$Depth<70]<-"Shallow"
+earthquake$depth_level[earthquake$Depth>300]<-"Deep"
+
+
 #application header and title
-header<-dashboardHeader(title="Pittsburgh parks dashboard")
+header<-dashboardHeader(title="Earthquake summary from 1995 to 2011")
 
 #dashboard sidebar
 sidebar<-dashboardSidebar(
     sidebarMenu(
-    id="tabs",
-    menuItem("summary",icon=icon("list-alt"),tabName = "summary"),
-    menuItem("Plot",icon=icon("bar-chart"),tabName="plot"),
-    menuItem("Table",icon=icon("table"),tabName = "table",badgeLabel = "new",badgeColor="red"),
-    
-    #inputs
-    #select a range of area, only parks within this area will be summarized and scatterplotted
-    sliderInput(inputId="area_select",
-                label="Select area within:",
-                min=min(park$Shape__Area,na.rm=T),
-                max=max(park$Shape__Area,na.rm=T),
-                value=c(min(park$Shape__Area,na.rm=T),max(park$Shape__Area,na.rm=T)),
-    ),
-    #select y-axis and x-axis of the scatterplot
-    selectInput(inputId="y",
-                label="Y-aixs of scatterplot",
-                choices=c("Acreage"="acreage",
-                          "Square foot"="sqft",
-                          "Shape area"="Shape__Area",
-                          "Shape length"="Shape__Length"),
-                selected="Shape__Area"),
-    
-    selectInput(inputId="x",
-                label="X-aixs of scatterplot",
-                choices=c("Acreage"="acreage",
-                          "Square foot"="sqft",
-                          "Shape area"="Shape__Area",
-                          "Shape length"="Shape__Length"),
-                selected="Shape__Length"),
-   #select the column to be colored by
-    selectInput(inputId="z",
-                label="color by",
-                choices=c("Type"="type_",
-                          "Sector"="sector",
-                          "Divname"="divname"),
-                selected="sector"),
-   
-    numericInput(inputId="size",
-                 label="point size in scatterplot",
-                 value=1.5,min=1,max=3,step=0.1),
-  #ask user to give a title to scatterplot
-    textInput(inputId="plot_title",label="Plot title of scatterplot",placeholder="Enter text to be used as plot title"),
-    #select the division for boxplot and barplot
-      selectInput(inputId="selected_division",
-                label="select divname for chart and table",
-                choices=sort(unique(park$divname)),
-                selected="Northern"),
-    
-  
-    #number of samples to be shown in table
-    numericInput(inputId="n_samp",
-                 label="a random selection of n parks of this division shown in table",
-                 min=1,max=nrow(park),value=15),
-    
-    actionButton(inputId = "write_csv", 
-                 label = "Write CSV"),
-    actionButton(inputId="get_new_sample",
-                 label="get new samples")
+        id="tabs",
+        menuItem("Map",icon=icon("map-pin"),tabName = "map"),
+        menuItem("Plot",icon=icon("bar-chart"),tabName="plot"),
+        menuItem("Table",icon=icon("table"),tabName = "table",badgeLabel = "new",badgeColor="red"),
+
+        #inputs to select years of interest
+        selectInput(inputId = "year1",
+                    label = "From Year:",
+                    choices=c("1995","1996","1997","1998","1999","2000","2001","2002",
+                              "2003","2004","2005","2006","2007","2008","2009","2010","2011")),
+        selectInput(inputId = "year2",
+                    label = "To Year:",
+                    choices=c("1995","1996","1997","1998","1999","2000","2001","2002",
+                              "2003","2004","2005","2006","2007","2008","2009","2010","2011")),
+       
+        #inputs to draw heatmap or add markers
+        checkboxInput("heat", "Heatmap", FALSE),
+        checkboxInput("markers", "Markers", FALSE),
+        
+        #add button to export data
+        actionButton(inputId = "write_csv", 
+                     label = "Write CSV")
     )
 )
+
 #dashboard body
 body<-dashboardBody(tabItems(
-    #summary data page
-   tabItem("summary",
-           fluidRow(
-             infoBoxOutput("percent")
-             
-           ),
-           fluidRow(
-            valueBoxOutput("length"),
-             valueBoxOutput("area")
-          )),
+    #map page
+    tabItem("map",
+            fluidRow(
+                tabBox(title="map showing earthquake depth level in selected years",
+                       width=12,
+                       tabPanel("Map",leafletOutput("mymap")))
+                       
+            )
+            
+    ),
+            
     #plot page
     tabItem("plot",
-           
+            
             fluidRow(
-                tabBox(title="scatterplot of all parks in the selected area",
-                        width=12,
-                        tabPanel("scatter",plotlyOutput("scatter_plot"))
-                        )
-                
-            ),
-            fluidRow(
-                tabBox(title="barplot and boxplot of parks in selected division",
+                tabBox(title="histogram and boxplot",
                        width=12,
-                       tabPanel("barplot",plotlyOutput("plot_bar")),
+                       tabPanel("histogram",plotlyOutput("histogram_mag")),
                        tabPanel("boxplot",plotlyOutput("plot_box")))
             )
-        
+            
     ),
     
     #data table page
     tabItem("table",
-            #show user how many seconds have been spent on this page
-            textOutput(outputId="time_elapse"),
+            
             fluidPage(
-                box(title="key information of sampled parks in selected divname",
+                box(title="key information of earthquakes in selected years",
                     DT::dataTableOutput("table"),width=12)
             ))
 )
-    
+
 )
 
 
 ui<-dashboardPage(header,sidebar,body,skin="red")
 
-#define server function
-server<-function(input,output,session){
-  #data subset to plot barplot and boxplot,and for table output
-    park_subset<-reactive({
-         req(input$selected_division)
-        filter(park,divname %in% input$selected_division)
-    })
-
-    #update sample size for table output for different sessions
-    observe({
-    updateNumericInput(session,
-                       inputId="n_samp",
-                       value=min(15,nrow(park_subset())),
-                       max=nrow(park_subset()))
-    })
-    #get new samples when user hits the button
-    park_subset_sample<-eventReactive(
-        eventExpr=input$get_new_sample,
-        valueExpr={
-        req(input$n_samp)
-        sample_n(park_subset(), input$n_samp)},
-        ignoreNULL=FALSE
-    )
-    
-    
-    #a subset of parks in selected shape area, dataset for scatterplot
-    park_within<-reactive({
-       filter(park,Shape__Area>=input$area_select[1]&Shape__Area<=input$area_select[2]) 
-    })
-    pretty_plot_title<-reactive({(input$plot_title)})
-    #percentage info box
-    output$percent<-renderInfoBox({
-    
-    pw<-park_within()
-    num<-round((nrow(pw)/nrow(park))*100,2)
-    infoBox("percent",value=paste(num,"%"),subtitle=paste(nrow(pw),"parks in selected area,",num,"% of total"),icon=icon("hand-point-right"),color="aqua",fill=FALSE)
-})
-    #shape length mean value box
-    output$length<-renderValueBox({
-        pw<-park_within()
-        num<-round(mean(pw$Shape__Length,na.rm=T),5)*1000
-        valueBox("Avg length",value=num,subtitle=paste("average Shape length in miles of",nrow(pw), "parks within selected Shape area"),icon=icon("sort-numeric-asc"),color="purple")
-    })
-    #shape area mean value box
-    output$area<-renderValueBox({
-      pw<-park_within()
-      num<-round((mean(pw$Shape__Area,na.rm=T))*1000000,2)
-      valueBox("Avg area",value=num,subtitle=paste("average Shape area in km2 of",nrow(pw), "parks within selected Shape area"),icon=icon("sort-numeric-asc"),color="olive")
-    })
-    
-    
-        #create scatterplot
-    output$scatter_plot<-renderPlotly({
-        ggplotly(ggplot(data=park_within(),aes_string(x=input$x,y=input$y,color=input$z))+
-            geom_point(size=input$size)+
-            labs(title=pretty_plot_title())+geom_smooth()+theme_bw()+scale_shape(),
-            tooltip=c('x','y'))
-        
-        })
-    #create barplot
-    output$plot_bar<-renderPlotly({
-          ggplotly(ggplot(park_subset(),aes(type_))+
-          geom_bar(fill="green")+theme_minimal()+
-        labs(x="type",title=paste("park distribution by type in:",input$selected_division)),tooltip="all")
-            })
-        
-    
-    #create boxplot
-    output$plot_box<-renderPlotly({
-      ggplotly(
-        ggplot(park_subset(), aes(x = type_, y = Shape__Area)) + 
-        geom_boxplot(color="purple")+scale_y_log10()+labs(x="type",y="log(shape area)")
-      )
-    })
-    #record time viewing the table
-    beg <- reactive({ Sys.time() }) 
-    now <- reactive({ invalidateLater(millis = 1000);Sys.time() }) 
-    diff <- reactive({ round(difftime(now(), beg(), units = "secs")) })
-    output$time_elapse <- renderText({   
-      paste("You have been viewing this table for", diff(), "seconds.") })
-    #create data table
-    output$table<-DT::renderDataTable( 
-     DT::datatable(data=park_subset_sample()[,c(2,6,8,11,19)], 
-                   
-                  extensions='FixedHeader',
-                  options=list(
-                               autoWidth=TRUE,
-                               fixedHeader=TRUE,
-                               columnDefs = list(list(width = '100px', targets = c(1,2))),
-                               pageLength=20
-                               
-                              ), 
-                 
-                  rownames=FALSE)
-    
-     %>%  formatStyle( 
-       columns = 2, valueColumns = 2, 
-       color = styleEqual(c("NP","CP", "RVR", "BTF","SU","RP","SCH","OTR"), c("red",
-    "green", "blue", "grey","orange","purple","navy","olive"))  ) %>% 
-    
-       formatStyle(  columns = 5, 
-                     background = styleColorBar(range(park_subset()[,19]), '#cab2d6'), 
-                     backgroundSize =  '98% 88%', 
-                     backgroundRepeat = 'no-repeat', 
-                     backgroundPosition = 'center' ) %>%
-      formatRound('Shape__Area',10) )
-    
+# Define server logic required
+server <- function(input, output,session) {
    
     
-    # Write sampled data as csv ---------------------------------------
-    observeEvent(eventExpr = input$write_csv, 
-                 handlerExpr = {
-                   filename <- paste0("sample parks in ",input$selected_division,str_replace_all(Sys.time(), ":|\ ", "_"), ".csv")
-                   write.csv(park_subset_sample(), file = filename, row.names = FALSE) 
-                 }
+    output$mymap <- renderLeaflet({
+        
+        leaflet() %>%
+            #add markers on base maps
+            addProviderTiles("Esri.WorldImagery",group="World Imagery") %>%
+            addProviderTiles("Stamen.TonerLite",group="Toner Lite")%>%
+            addPolygons(data=us,color="black",group="See how US is affected",weight=2)%>%
+            addLayersControl(
+                baseGroups = c("World Imagery",  "Toner Lite"),
+                overlayGroups = ("See how US is affected"),
+                options = layersControlOptions(collapsed = FALSE)
+            )
+           
+    })
+    
+    #create a subset of earthquake data to be demonstrated
+    earthquakeinputs<-reactive({
+        earthquake1<-subset(earthquake,Year>=as.numeric(input$year1) & Year <=as.numeric(input$year2))
+        return (earthquake1)
+    })
+    
+    #add markers according to input years
+    observe({
+        if(input$markers){
+        data=earthquakeinputs()
+        palette = colorFactor(palette = c("#d73027", "#fff49c","#1a9850"),data$depth_level)
+    
+        leafletProxy("mymap",data=data) %>%
+      
+            clearGroup("data") %>%
+            removeControl("legend")%>%
+            addCircleMarkers(lng =data$Longitude ,lat = data$Latitude,group="data", popup=paste("long:",data$Longitude,"lat:",data$Latitude,"depth:",data$Depth),color=~palette(depth_level),radius = 0.1)%>%
+            addLegend(position = "topright" , pal = palette, values = data$depth_level, title = "Depth Level",layerId = "legend")
+        
+   } 
+         else{leafletProxy("mymap",data=data) %>%clearGroup("data")%>%removeControl("legend")} 
+            })
+    
+    #add heatmap according to input years
+    observe({
+        if(input$heat){
+                     data=earthquakeinputs()
+                     palette2=colorNumeric("inferno",data$Depth)
+                     leafletProxy("mymap",data=data) %>%
+                        
+                         clearGroup("data2") %>%
+                         
+                         #problems about heatmap
+                         addHeatmap(lng =data$Longitude ,lat = data$Latitude,radius=10,blur=10,group="data2", 
+                                    intensity = log(data$Depth)/10)
+        }
+        else{leafletProxy("mymap",data=data) %>%clearHeatmap()}           
+                 
+    })
+    
+    #draw histogram reflecting magnitude distribution in selected years
+    output$histogram_mag<-renderPlotly({
+        ggplotly(
+            ggplot(earthquakeinputs(), aes(x = Magnitude)) + 
+                geom_histogram(bins=10,color="navy",fill="yellow")+labs(x="magnitude",y="number of earthquakes",
+                                                                        title=paste("Maginitude distribution of earthquakes from",input$year1,"to",input$year2))
+        )
+    })
+    
+    #draw boxplot reflecting duration distribution in selected years
+    output$plot_box<-renderPlotly({
+        ggplotly(
+            ggplot(earthquakeinputs(), aes(x = factor(Year), y = Duration) )+ 
+                geom_boxplot(color="purple")+labs(x="Year",y="duration in seconds",
+                                                  title=paste("Duration distribution of earthquakes from",input$year1,"to",input$year2))
+        )
+    })
+    
+    # subset table recording earthquake key information in selected years
+    output$table <- DT::renderDataTable(
+        
+        DT::datatable(data = earthquakeinputs()[,c(-2,-3,-9)], 
+                      
+                      
+                      extensions='FixedHeader',
+                      options=list(
+                          autoWidth=TRUE,
+                          fixedHeader=TRUE,
+                          columnDefs = list(list(width = '100px', targets = c(1,2))),
+                          pageLength=20
+                          
+                      ), 
+                      
+                      rownames = FALSE)
     )
     
-    
+    # Write selected data as csv 
+    observeEvent(eventExpr = input$write_csv, 
+                 handlerExpr = {
+                     filename <- paste0("Key Information of Earthquakes in ",input$year1,"-",input$year2, ".csv")
+                     write.csv(earthquakeinputs()[,c(-2,-3,-9)], file = filename, row.names = FALSE) 
+                 }
+    )
 }
 
 
-#run the app
-shinyApp(ui=ui,server=server)
+
+
+# Run the application 
+shinyApp(ui = ui, server = server)
